@@ -1,5 +1,7 @@
 # D05 — Xcode & Makefile 搭配 Conan
 
+[![D05 Makefile](https://github.com/chchwy/ironman-2026/actions/workflows/d05-make.yml/badge.svg)](https://github.com/chchwy/ironman-2026/actions/workflows/d05-make.yml)
+
 對應文章：`D05： Xcode & Makefile 搭配 Conan 套件管理器.md`
 
 兩個專案，`[requires]` 完全相同，只換 `[generators]`。
@@ -25,7 +27,7 @@ D05/
 | Xcode | 16.4 / Apple Clang 17 | Xcode 16.4 (16F6) / apple-clang 17.0.0 |
 | Conan | 2.32.0 | 2.32.0 |
 | CMake（Debug 現場編譯用） | — | 4.3.0 |
-| Debian 13 + GCC 13 | 有 | ❌ 本機無容器環境，未驗 |
+| Debian 13 + GCC 13 | 有 | ✅ 由 GitHub Actions 驗（本機無容器環境）|
 
 機器上裝了多版 Xcode，預設 `xcode-select` 指向 15.4。用 `DEVELOPER_DIR` 切換即可，
 不用動全域設定：
@@ -156,7 +158,9 @@ make
 
 `build/` 由 `conan install -of build` 建出來，所以要先 `conan install` 再 `make`。
 
-macOS 上實測通過，`make` 展開的指令：
+### macOS
+
+實測通過，`make` 展開的指令：
 
 ```
 c++ -I.../fmt/include -I.../nlohmann_json/include -std=c++17 \
@@ -168,12 +172,45 @@ c++ -I.../fmt/include -I.../nlohmann_json/include -std=c++17 \
 實測成立，展開的指令裡 `-std=c++17` 確實來自 Makefile 而非 Conan。
 
 **注意：macOS 上的 `conandeps.mk` 完全沒有 `CONAN_SYSTEM_LIBS` 和 `CONAN_DEFINES`
-這兩個變數**，fmt 的系統相依 `m` 只有 Linux 才有。所以文章講的
-`CONAN_SYSTEM_LIB_FLAG = -l` 不能省（省了會 `cannot find m`）是 **Linux 限定**，
-在 macOS 上重現不出來。文章原文有寫「以 Linux 的 GCC 為例」，範圍標得對。
+這兩個變數**，fmt 的系統相依 `m` 只有 Linux 才有。Makefile 裡的
+`$(CONAN_SYSTEM_LIBS)` 和 `$(CONAN_DEFINES)` 在 macOS 上展開成空字串，無害，
+所以同一份 Makefile 兩邊都能用。
 
-Makefile 裡的 `$(CONAN_SYSTEM_LIBS)` 和 `$(CONAN_DEFINES)` 在 macOS 上展開成空字串，
-無害，所以同一份 Makefile 兩邊都能用。
+### Linux（GitHub Actions）
+
+`.github/workflows/d05-make.yml` 跑在 `debian:13` 容器裡，裝 `g++-13` + Conan 2.32.0，
+對齊文章宣稱的環境。Debian 13 的預設 GCC 是 14，所以 workflow 明確設
+`CC=gcc-13` / `CXX=g++-13`——Conan 的 `profile detect` 會優先採用這兩個環境變數。
+
+Linux 上 `conandeps.mk` 確實有 `CONAN_SYSTEM_LIBS`，變數是三層轉接：
+
+```makefile
+CONAN_SYSTEM_LIBS_FMT__FMT = $(CONAN_SYSTEM_LIB_FLAG)m
+CONAN_SYSTEM_LIBS_FMT      = $(CONAN_SYSTEM_LIBS_FMT__FMT)
+CONAN_SYSTEM_LIBS          = $(CONAN_SYSTEM_LIBS_FMT)
+```
+
+（跟 libs 一樣，fmt 有 component 所以中間多一層雙底線的 `_FMT__FMT`。）
+
+`make` 展開的指令，結尾多了 `-lm`：
+
+```
+g++-13 -I.../fmt/include -I.../nlohmann_json/include -std=c++17 \
+    src/main.cpp -o build/hello -L.../fmt/lib -lfmt -lfmt-c -lm
+```
+
+**文章那個警告是對的，workflow 把它釘成一個「必須失敗」的測試。**
+用 `make CONAN_SYSTEM_LIB_FLAG=` 覆寫成空字串（不動檔案）重現：
+
+```
+g++-13 ... -lfmt -lfmt-c m
+/usr/bin/ld: cannot find m: No such file or directory
+collect2: error: ld returned 1 exit status
+make: *** [Makefile:15: build/hello] Error 1
+```
+
+錯誤訊息是 `cannot find m`，跟文章寫的一致。哪天 Conan 改掉這個行為、
+或是這個測試變成會通過，CI 就會先叫。
 
 ## 驗證狀態
 
@@ -188,7 +225,8 @@ Makefile 裡的 `$(CONAN_SYSTEM_LIBS)` 和 `$(CONAN_DEFINES)` 在 macOS 上展�
 | Xcode：apple-clang 版本對照表 | ✅ |
 | **Xcode：文章的 `xcodebuild` 指令** | ❌ **不成立，解法要改** |
 | Makefile：macOS 上編譯 + 執行 | ✅ |
-| Makefile：Linux + GCC 13 | ⏳ 本機無容器環境，未驗 |
+| Makefile：Debian 13 + GCC 13（CI） | ✅ |
+| Makefile：漏掉 `CONAN_SYSTEM_LIB_FLAG` 必失敗（CI 反例） | ✅ |
 
 `conan_config.xcconfig` 實際內容（文章說「只有兩行」，實際前面還有兩行註解）：
 
