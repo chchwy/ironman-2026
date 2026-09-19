@@ -79,13 +79,15 @@ jobs:
           set -euo pipefail
           echo "--- build/ 產生的檔案 ---"
           ls build/
-          echo "--- conandeps.mk 的彙總變數 ---"
-          grep -E '^CONAN_(DEPS|INCLUDE_DIRS|LIB_DIRS|LIBS|SYSTEM_LIBS|DEFINES) ' build/conandeps.mk
+          echo "--- conandeps.mk 全文 ---"
+          cat build/conandeps.mk
+          echo "--- 所有 SYSTEM_LIBS 相關變數 ---"
+          grep -n 'SYSTEM_LIB' build/conandeps.mk
 
           # 文章說 Linux 上 fmt 會帶一個系統相依 m。這是下面那個「必須失敗」
           # 測試的前提，先確認它真的存在。
           grep -q '^CONAN_SYSTEM_LIBS ' build/conandeps.mk
-          grep -E '^CONAN_SYSTEM_LIBS_FMT ' build/conandeps.mk | grep -q 'm'
+          grep -E '^CONAN_SYSTEM_LIBS' build/conandeps.mk | grep -q 'CONAN_SYSTEM_LIB_FLAG)m'
           echo "✓ CONAN_SYSTEM_LIBS 存在，fmt 確實帶了 m"
 
       - name: make 並執行（文章的正常路徑）
