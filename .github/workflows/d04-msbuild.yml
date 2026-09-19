@@ -1,7 +1,11 @@
 name: D04 MSBuild (Windows + VS 2022)
 
 # 驗證 D04 文章「Conan + Visual Studio」那一段。
-# windows-2025 runner 帶 VS 2022（v143 toolset），與文章宣稱一致。
+#
+# 注意：windows runner 上同時裝了多個 Visual Studio。第一次跑的時候
+# setup-msbuild 抓到的是 VS 18（Conan 偵測成 msvc 195），不是文章宣稱的
+# VS 2022 / msvc 194。所以這裡自己用 vswhere 挑版本，而不是靠 detect —
+# 這正是文章踩雷提醒第三點講的事情。
 
 on:
   push:
@@ -18,7 +22,7 @@ on:
 
 jobs:
   msbuild:
-    name: Windows 2025 / VS 2022 v143 / Conan 2.32.0
+    name: Windows / VS 2022 v143 / Conan 2.32.0
     runs-on: windows-2025
 
     env:
@@ -32,7 +36,33 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: microsoft/setup-msbuild@v3
+      - name: 挑出 Visual Studio 2022（文章用的版本）
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+
+          Write-Host "--- runner 上所有的 Visual Studio ---"
+          & $vswhere -all -prerelease -products * -format json | ConvertFrom-Json |
+            ForEach-Object { "{0,-12} {1,-16} {2}" -f `
+              $_.catalog.productLineVersion, $_.catalog.productDisplayVersion, $_.installationPath }
+
+          # 文章用 VS 2022 = 17.x，Conan 的 compiler.version 是 194
+          $vs = & $vswhere -products * -version "[17.0,18.0)" -latest -property installationPath
+          if ($vs) {
+            $msvcVer = '194'
+            Write-Host "OK: 找到 VS 2022 -> $vs"
+          } else {
+            $vs = & $vswhere -all -prerelease -products * -latest -property installationPath
+            $msvcVer = '195'
+            Write-Host "::warning::runner 上沒有 VS 2022，改用 $vs（msvc 195）。這與文章宣稱的環境不同。"
+          }
+
+          $msbuild = Join-Path $vs "MSBuild\Current\Bin\MSBuild.exe"
+          if (-not (Test-Path $msbuild)) { throw "找不到 MSBuild.exe：$msbuild" }
+          & $msbuild -version -nologo
+
+          "MSBUILD=$msbuild"   | Add-Content $env:GITHUB_ENV
+          "MSVC_VER=$msvcVer"  | Add-Content $env:GITHUB_ENV
+          "VS_PATH=$vs"        | Add-Content $env:GITHUB_ENV
 
       - name: 安裝 Conan 2.32.0
         run: |
@@ -41,16 +71,29 @@ jobs:
           & "$env:RUNNER_TEMP\conan\Scripts\pip.exe" install --quiet "conan==2.32.0"
           Add-Content $env:GITHUB_PATH "$env:RUNNER_TEMP\conan\Scripts"
 
-      - name: 產生 profile
+      - name: 寫出文章那份 profile
         run: |
           conan --version
           if ((conan --version) -notmatch '2\.32\.0') { throw "Conan 版本不是 2.32.0" }
-          conan profile detect
+
+          # 不用 conan profile detect：它會挑 runner 上最新的 VS。
+          # 這裡直接寫出文章 D04 裡那份 profile，只有 compiler.version 依實際挑到的 VS 決定。
+          conan profile detect --force | Out-Null
+          $profile = @"
+          [settings]
+          arch=x86_64
+          build_type=Release
+          compiler=msvc
+          compiler.cppstd=14
+          compiler.runtime=dynamic
+          compiler.version=$env:MSVC_VER
+          os=Windows
+          "@
+          $dir = Join-Path $env:CONAN_HOME 'profiles'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Set-Content -Path (Join-Path $dir 'default') -Value $profile -Encoding utf8
+          Write-Host "--- 使用的 profile ---"
           conan profile show
-          $p = conan profile show | Out-String
-          if ($p -notmatch 'compiler=msvc')  { throw "profile 不是 msvc" }
-          if ($p -notmatch 'compiler\.version=19\d') { throw "msvc 版本不在 19x 範圍" }
-          Write-Host "OK: Conan 2.32.0 + msvc"
 
       - name: conan install（只裝 Release，故意不裝 Debug）
         run: conan install . --build=missing -s build_type=Release
@@ -59,7 +102,7 @@ jobs:
         run: |
           Write-Host "--- conan/ ---"
           Get-ChildItem conan | Select-Object -ExpandProperty Name
-          if (-not (Test-Path conan/conandeps.props))     { throw "缺少 conandeps.props" }
+          if (-not (Test-Path conan/conandeps.props))      { throw "缺少 conandeps.props" }
           if (-not (Test-Path conan/conantoolchain.props)) { throw "缺少 conantoolchain.props" }
           # 文章說 vs_layout 讓專案根目錄保持乾淨，這裡確認沒有散落的 .props
           $stray = Get-ChildItem -File -Filter *.props | Select-Object -ExpandProperty Name
@@ -69,25 +112,29 @@ jobs:
       - name: 反例：只裝了 Release 就編 Debug 必須失敗
         run: |
           # 文章踩雷提醒第一點：只跑了 Release 的 conan install 就切到 Debug 編譯會失敗。
-          $ErrorActionPreference = 'Continue'
-          msbuild hello-conan-msvc.sln /p:Configuration=Debug /p:Platform=x64 /nologo `
+          & $env:MSBUILD hello-conan-msvc.sln /p:Configuration=Debug /p:Platform=x64 /nologo `
             > "$env:RUNNER_TEMP\neg.log" 2>&1
           $rc = $LASTEXITCODE
-          Write-Host "--- msbuild 輸出（尾 40 行）---"
-          Get-Content "$env:RUNNER_TEMP\neg.log" -Tail 40
+          Write-Host "--- msbuild 輸出（尾 30 行）---"
+          Get-Content "$env:RUNNER_TEMP\neg.log" -Tail 30
 
           if ($rc -eq 0) {
             Write-Host "::error::只裝 Release 卻把 Debug 編過了 —— 文章踩雷提醒第一點要重新確認"
             exit 1
           }
-          Write-Host "OK: 如文章所述失敗（exit $rc）"
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\neg.log" -Pattern 'C1083' -Quiet)) {
+            Write-Host "::error::失敗了，但不是預期的找不到標頭檔（C1083），請重新確認"
+            exit 1
+          }
+          Write-Host "OK: 如文章所述失敗在找不到標頭檔（exit $rc）"
+          exit 0   # msbuild 留下的 $LASTEXITCODE 會被當成整步的結果，這裡要覆寫
 
       - name: conan install（補上 Debug）
         run: conan install . --build=missing -s build_type=Debug
 
       - name: Debug 編譯並執行
         run: |
-          msbuild hello-conan-msvc.sln /p:Configuration=Debug /p:Platform=x64 /nologo
+          & $env:MSBUILD hello-conan-msvc.sln /p:Configuration=Debug /p:Platform=x64 /nologo
           if ($LASTEXITCODE -ne 0) { throw "Debug 建置失敗" }
           $actual = (& .\x64\Debug\hello-conan-msvc.exe | Out-String).Replace("`r`n","`n").Trim()
           $expected = (Get-Content "$env:GITHUB_WORKSPACE\expected-output.txt" -Raw).Replace("`r`n","`n").Trim()
@@ -97,7 +144,7 @@ jobs:
 
       - name: Release 編譯並執行
         run: |
-          msbuild hello-conan-msvc.sln /p:Configuration=Release /p:Platform=x64 /nologo
+          & $env:MSBUILD hello-conan-msvc.sln /p:Configuration=Release /p:Platform=x64 /nologo
           if ($LASTEXITCODE -ne 0) { throw "Release 建置失敗" }
           $actual = (& .\x64\Release\hello-conan-msvc.exe | Out-String).Replace("`r`n","`n").Trim()
           $expected = (Get-Content "$env:GITHUB_WORKSPACE\expected-output.txt" -Raw).Replace("`r`n","`n").Trim()
@@ -108,13 +155,12 @@ jobs:
       - name: 摘要
         if: always()
         run: |
-          $vs = (& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
-                  -latest -property catalog_productDisplayVersion)
           @(
             "## D04 MSBuild 驗證"
             ""
             "| 項目 | 值 |"
             "|---|---|"
-            "| Visual Studio | $vs |"
+            "| Visual Studio | $env:VS_PATH |"
+            "| Conan compiler.version | $env:MSVC_VER |"
             "| Conan | $((conan --version) -replace 'Conan version ','') |"
           ) | Add-Content $env:GITHUB_STEP_SUMMARY
