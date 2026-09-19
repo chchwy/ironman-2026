@@ -1,0 +1,23 @@
+# Python / Conan 環境
+.venv/
+.conan2/
+
+# vcpkg：不 vendor 進 git，讀者自己 clone + bootstrap（見 README）
+/vcpkg/
+
+# CMake build 輸出（各篇底下都有 build/）
+build/
+CMakeUserPresets.json
+
+# Visual Studio 產出物（D04 的 .sln/.vcxproj 是手寫教材，要留；
+# 底下這些是編譯後才出現的中繼/輸出檔）
+.vs/
+x64/
+*.vcxproj.user
+
+# Conan 針對 MSBuild 產生的整合檔（用 `conan install` 就能重新產生）
+D04/conan/
+D04/hello-conan-msvc/
+
+# vcpkg manifest 安裝結果
+vcpkg_installed/

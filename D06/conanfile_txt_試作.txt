@@ -1,0 +1,11 @@
+[requires]
+fmt/12.2.0
+portaudio/19.7
+libalsa/1.2.13
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[layout]
+cmake_layout
