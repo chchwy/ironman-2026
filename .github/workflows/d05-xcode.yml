@@ -1,0 +1,173 @@
+name: D05 Xcode (macOS + Xcode 16.4)
+
+# 驗證 D05 文章「Conan + Xcode」那一段。
+# macos-15 runner 的預設 Xcode 剛好就是 16.4 (16F6) / apple-clang 17，與文章宣稱一致。
+
+on:
+  push:
+    paths:
+      - 'D05/hello-conan-xcode/**'
+      - 'expected-output.txt'
+      - '.github/workflows/d05-xcode.yml'
+  pull_request:
+    paths:
+      - 'D05/hello-conan-xcode/**'
+      - 'expected-output.txt'
+      - '.github/workflows/d05-xcode.yml'
+  workflow_dispatch:
+
+jobs:
+  xcode:
+    name: macOS 15 / Xcode 16.4 / Conan 2.32.0
+    runs-on: macos-15
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      CONAN_HOME: ${{ github.workspace }}/.conan-home
+      DD: ${{ github.workspace }}/.dd
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: D05/hello-conan-xcode
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 檢查版本是否符合文章宣稱
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcodebuild -version | head -1 | grep -qx "Xcode 16.4"
+          clang --version | head -1
+          clang --version | head -1 | grep -q "Apple clang version 17\."
+          cmake --version | head -1   # Debug 的 fmt 要現場編譯，需要 cmake
+          echo "✓ Xcode 16.4 / apple-clang 17"
+
+      - name: 安裝 Conan 2.32.0
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/conan"
+          "$RUNNER_TEMP/conan/bin/pip" install --quiet --upgrade pip
+          "$RUNNER_TEMP/conan/bin/pip" install --quiet "conan==2.32.0"
+          echo "$RUNNER_TEMP/conan/bin" >> "$GITHUB_PATH"
+
+      - name: 產生 profile
+        run: |
+          set -euo pipefail
+          conan --version | grep -qx "Conan version 2.32.0"
+          conan profile detect
+          conan profile show
+          conan profile show | grep -q "compiler=apple-clang"
+          conan profile show | grep -q "compiler.version=17"
+
+      - name: conan install（Release 和 Debug 各一次）
+        run: |
+          set -euxo pipefail
+          # 文章的說法：Release 有預編譯可下載，Debug 一定是現場編譯。
+          conan install . --build=missing -s build_type=Release -of conan 2>&1 | tee /tmp/rel.log
+          conan install . --build=missing -s build_type=Debug   -of conan 2>&1 | tee /tmp/dbg.log
+
+      - name: 檢查 Release 用下載的、Debug 是現場編譯的
+        run: |
+          set -euo pipefail
+          if ! grep -qE "fmt/12\.2\.0.*- (Download|Cache)" /tmp/rel.log; then
+            echo "::warning::Release 的 fmt 不是直接取得的，文章「有預編譯」的說法可能已變"
+            grep -E "fmt/12\.2\.0" /tmp/rel.log || true
+          else
+            echo "✓ Release 的 fmt 直接取得，未現場編譯"
+          fi
+          if grep -qE "fmt/12\.2\.0.*- Build" /tmp/dbg.log; then
+            echo "✓ Debug 的 fmt 如文章所述是現場編譯的"
+          else
+            echo "::warning::Debug 的 fmt 沒有現場編譯，文章的說法可能已變"
+            grep -E "fmt/12\.2\.0" /tmp/dbg.log || true
+          fi
+
+      - name: 檢查產生的 xcconfig 檔名與文章列的一致
+        run: |
+          set -euo pipefail
+          ls conan/
+          expected="conan_config.xcconfig
+          conandeps.xcconfig
+          conan_fmt.xcconfig
+          conan_fmt__fmt.xcconfig
+          conan_fmt__fmt_release_arm64.xcconfig
+          conan_fmt__fmt_debug_arm64.xcconfig
+          conan_fmt_fmt_c.xcconfig
+          conan_fmt_fmt_c_release_arm64.xcconfig
+          conan_fmt_fmt_c_debug_arm64.xcconfig
+          conan_nlohmann_json.xcconfig
+          conan_nlohmann_json_nlohmann_json.xcconfig
+          conan_nlohmann_json_nlohmann_json_release_arm64.xcconfig
+          conan_nlohmann_json_nlohmann_json_debug_arm64.xcconfig
+          conantoolchain.xcconfig
+          conantoolchain_release_arm64.xcconfig
+          conantoolchain_debug_arm64.xcconfig"
+          missing=0
+          while read -r f; do
+            f="$(echo "$f" | xargs)"
+            [ -z "$f" ] && continue
+            if [ ! -f "conan/$f" ]; then echo "::error::文章列了 $f，實際沒有產生"; missing=1; fi
+          done <<< "$expected"
+          [ "$missing" -eq 0 ] && echo "✓ 文章列的 16 個 xcconfig 全部存在"
+
+      - name: Debug 編譯並執行
+        run: |
+          set -euo pipefail
+          xcodebuild -project hello.xcodeproj -scheme hello -configuration Debug \
+            -derivedDataPath "$DD/debug" build
+          "$DD/debug/Build/Products/Debug/hello" | tee /tmp/actual-debug.txt
+          diff -u "$GITHUB_WORKSPACE/expected-output.txt" /tmp/actual-debug.txt
+          echo "✓ Debug 輸出與文章一致"
+
+      - name: Release 編譯並執行（ARCHS=arm64）
+        run: |
+          set -euo pipefail
+          xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
+            ARCHS=arm64 -derivedDataPath "$DD/release" build
+          lipo -archs "$DD/release/Build/Products/Release/hello"
+          "$DD/release/Build/Products/Release/hello" | tee /tmp/actual-release.txt
+          diff -u "$GITHUB_WORKSPACE/expected-output.txt" /tmp/actual-release.txt
+          echo "✓ Release 輸出與文章一致"
+
+      - name: 反例：Release 不指定 ARCHS 必須失敗
+        run: |
+          set -uo pipefail
+          # 文章原本寫 -destination 可以把架構限制成 arm64，實測不成立。
+          # 這一步把「不指定 ARCHS 會失敗」釘住：Release 預設是 Universal Binary，
+          # x86_64 那一輪吃不到 Conan 的設定。
+          set +e
+          xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$DD/trap" build > /tmp/trap.log 2>&1
+          rc=$?
+          set -e
+          echo "--- 錯誤摘要 ---"
+          grep -E "error:|BUILD (SUCCEEDED|FAILED)" /tmp/trap.log | head -10 || true
+
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::加了 -destination 之後竟然編過了 —— 文章關於 Universal Binary 的踩雷說明要重新確認"
+            exit 1
+          fi
+          if ! grep -q "fmt/core.h' file not found" /tmp/trap.log; then
+            echo "::error::失敗了，但不是文章描述的那個錯誤，請重新確認"
+            exit 1
+          fi
+          grep -q "normal x86_64 c++" /tmp/trap.log \
+            && echo "✓ 確認 -destination 沒有擋掉 x86_64，錯誤如文章所述"
+
+      - name: 摘要
+        if: always()
+        run: |
+          {
+            echo "## D05 Xcode 驗證"
+            echo
+            echo "| 項目 | 值 |"
+            echo "|---|---|"
+            echo "| macOS | $(sw_vers -productVersion) |"
+            echo "| Xcode | $(xcodebuild -version | head -1 | sed 's/Xcode //') |"
+            echo "| apple-clang | $(clang --version | head -1 | sed 's/.*version //;s/ .*//') |"
+            echo "| Conan | $(conan --version | sed 's/Conan version //') |"
+          } >> "$GITHUB_STEP_SUMMARY"

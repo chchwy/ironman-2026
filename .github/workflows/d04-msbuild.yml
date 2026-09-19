@@ -1,0 +1,120 @@
+name: D04 MSBuild (Windows + VS 2022)
+
+# 驗證 D04 文章「Conan + Visual Studio」那一段。
+# windows-2025 runner 帶 VS 2022（v143 toolset），與文章宣稱一致。
+
+on:
+  push:
+    paths:
+      - 'D04/**'
+      - 'expected-output.txt'
+      - '.github/workflows/d04-msbuild.yml'
+  pull_request:
+    paths:
+      - 'D04/**'
+      - 'expected-output.txt'
+      - '.github/workflows/d04-msbuild.yml'
+  workflow_dispatch:
+
+jobs:
+  msbuild:
+    name: Windows 2025 / VS 2022 v143 / Conan 2.32.0
+    runs-on: windows-2025
+
+    env:
+      CONAN_HOME: ${{ github.workspace }}\.conan-home
+
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: D04
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: microsoft/setup-msbuild@v3
+
+      - name: 安裝 Conan 2.32.0
+        run: |
+          python -m venv "$env:RUNNER_TEMP\conan"
+          & "$env:RUNNER_TEMP\conan\Scripts\python.exe" -m pip install --quiet --upgrade pip
+          & "$env:RUNNER_TEMP\conan\Scripts\pip.exe" install --quiet "conan==2.32.0"
+          Add-Content $env:GITHUB_PATH "$env:RUNNER_TEMP\conan\Scripts"
+
+      - name: 產生 profile
+        run: |
+          conan --version
+          if ((conan --version) -notmatch '2\.32\.0') { throw "Conan 版本不是 2.32.0" }
+          conan profile detect
+          conan profile show
+          $p = conan profile show | Out-String
+          if ($p -notmatch 'compiler=msvc')  { throw "profile 不是 msvc" }
+          if ($p -notmatch 'compiler\.version=19\d') { throw "msvc 版本不在 19x 範圍" }
+          Write-Host "OK: Conan 2.32.0 + msvc"
+
+      - name: conan install（只裝 Release，故意不裝 Debug）
+        run: conan install . --build=missing -s build_type=Release
+
+      - name: 檢查 vs_layout 把檔案收進 conan/
+        run: |
+          Write-Host "--- conan/ ---"
+          Get-ChildItem conan | Select-Object -ExpandProperty Name
+          if (-not (Test-Path conan/conandeps.props))     { throw "缺少 conandeps.props" }
+          if (-not (Test-Path conan/conantoolchain.props)) { throw "缺少 conantoolchain.props" }
+          # 文章說 vs_layout 讓專案根目錄保持乾淨，這裡確認沒有散落的 .props
+          $stray = Get-ChildItem -File -Filter *.props | Select-Object -ExpandProperty Name
+          if ($stray) { throw "專案根目錄出現 .props：$stray" }
+          Write-Host "OK: vs_layout 生效，根目錄沒有散落的 .props"
+
+      - name: 反例：只裝了 Release 就編 Debug 必須失敗
+        run: |
+          # 文章踩雷提醒第一點：只跑了 Release 的 conan install 就切到 Debug 編譯會失敗。
+          $ErrorActionPreference = 'Continue'
+          msbuild hello-conan-msvc.sln /p:Configuration=Debug /p:Platform=x64 /nologo `
+            > "$env:RUNNER_TEMP\neg.log" 2>&1
+          $rc = $LASTEXITCODE
+          Write-Host "--- msbuild 輸出（尾 40 行）---"
+          Get-Content "$env:RUNNER_TEMP\neg.log" -Tail 40
+
+          if ($rc -eq 0) {
+            Write-Host "::error::只裝 Release 卻把 Debug 編過了 —— 文章踩雷提醒第一點要重新確認"
+            exit 1
+          }
+          Write-Host "OK: 如文章所述失敗（exit $rc）"
+
+      - name: conan install（補上 Debug）
+        run: conan install . --build=missing -s build_type=Debug
+
+      - name: Debug 編譯並執行
+        run: |
+          msbuild hello-conan-msvc.sln /p:Configuration=Debug /p:Platform=x64 /nologo
+          if ($LASTEXITCODE -ne 0) { throw "Debug 建置失敗" }
+          $actual = (& .\x64\Debug\hello-conan-msvc.exe | Out-String).Replace("`r`n","`n").Trim()
+          $expected = (Get-Content "$env:GITHUB_WORKSPACE\expected-output.txt" -Raw).Replace("`r`n","`n").Trim()
+          Write-Host $actual
+          if ($actual -ne $expected) { throw "Debug 輸出與文章不一致" }
+          Write-Host "OK: Debug 輸出與文章一致"
+
+      - name: Release 編譯並執行
+        run: |
+          msbuild hello-conan-msvc.sln /p:Configuration=Release /p:Platform=x64 /nologo
+          if ($LASTEXITCODE -ne 0) { throw "Release 建置失敗" }
+          $actual = (& .\x64\Release\hello-conan-msvc.exe | Out-String).Replace("`r`n","`n").Trim()
+          $expected = (Get-Content "$env:GITHUB_WORKSPACE\expected-output.txt" -Raw).Replace("`r`n","`n").Trim()
+          Write-Host $actual
+          if ($actual -ne $expected) { throw "Release 輸出與文章不一致" }
+          Write-Host "OK: Release 輸出與文章一致"
+
+      - name: 摘要
+        if: always()
+        run: |
+          $vs = (& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+                  -latest -property catalog_productDisplayVersion)
+          @(
+            "## D04 MSBuild 驗證"
+            ""
+            "| 項目 | 值 |"
+            "|---|---|"
+            "| Visual Studio | $vs |"
+            "| Conan | $((conan --version) -replace 'Conan version ','') |"
+          ) | Add-Content $env:GITHUB_STEP_SUMMARY

@@ -7,12 +7,12 @@ on:
   push:
     paths:
       - 'D05/hello-conan-make/**'
-      - 'D05/expected-output.txt'
+      - 'expected-output.txt'
       - '.github/workflows/d05-make.yml'
   pull_request:
     paths:
       - 'D05/hello-conan-make/**'
-      - 'D05/expected-output.txt'
+      - 'expected-output.txt'
       - '.github/workflows/d05-make.yml'
   workflow_dispatch:
 
@@ -95,7 +95,7 @@ jobs:
           set -euo pipefail
           make
           ./build/hello | tee /tmp/actual.txt
-          diff -u ../expected-output.txt /tmp/actual.txt
+          diff -u "$GITHUB_WORKSPACE/expected-output.txt" /tmp/actual.txt
           echo "✓ 輸出與文章一致"
 
       - name: 反例：拿掉 CONAN_SYSTEM_LIB_FLAG 必須失敗
