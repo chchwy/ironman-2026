@@ -21,3 +21,11 @@ D04/hello-conan-msvc/
 
 # vcpkg manifest 安裝結果
 vcpkg_installed/
+
+# D05：Conan 針對 Xcode 產生的整合檔（`conan install` 可重新產生）
+D05/hello-conan-xcode/conan/
+
+# Xcode 個人設定與產出
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/
+DerivedData/
