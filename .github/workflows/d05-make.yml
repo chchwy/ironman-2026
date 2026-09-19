@@ -1,0 +1,133 @@
+name: D05 Makefile (Debian 13 + GCC 13)
+
+# 驗證 D05 文章「Conan + Makefile」那一段。
+# 環境刻意對齊文章宣稱的 Debian 13 + GCC 13 + Conan 2.32.0。
+
+on:
+  push:
+    paths:
+      - 'D05/hello-conan-make/**'
+      - 'D05/expected-output.txt'
+      - '.github/workflows/d05-make.yml'
+  pull_request:
+    paths:
+      - 'D05/hello-conan-make/**'
+      - 'D05/expected-output.txt'
+      - '.github/workflows/d05-make.yml'
+  workflow_dispatch:
+
+jobs:
+  make:
+    name: Debian 13 / GCC 13 / Conan 2.32.0
+    runs-on: ubuntu-latest
+    container: debian:13
+
+    env:
+      CC: gcc-13
+      CXX: g++-13
+      CONAN_HOME: /tmp/conan-home
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: D05/hello-conan-make
+
+    steps:
+      - name: 安裝工具鏈
+        working-directory: /
+        run: |
+          set -euxo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            g++-13 make cmake git ca-certificates python3 python3-venv
+          cat /etc/debian_version
+          g++-13 --version | head -1
+
+      - uses: actions/checkout@v7
+
+      - name: 安裝 Conan 2.32.0
+        working-directory: /
+        run: |
+          set -euxo pipefail
+          python3 -m venv /opt/conan
+          /opt/conan/bin/pip install --quiet --upgrade pip
+          /opt/conan/bin/pip install --quiet "conan==2.32.0"
+          echo /opt/conan/bin >> "$GITHUB_PATH"
+
+      - name: 檢查版本是否符合文章宣稱
+        run: |
+          set -euo pipefail
+          conan --version
+          conan --version | grep -qx "Conan version 2.32.0"
+          g++-13 -dumpfullversion -dumpversion | grep -q '^13\.'
+          echo "✓ Conan 2.32.0 + GCC 13"
+
+      - name: 產生 profile
+        run: |
+          set -euo pipefail
+          conan profile detect
+          conan profile show
+          # detect 會依 CC/CXX 抓到 gcc-13，這裡確認一下
+          conan profile show | grep -q "compiler=gcc"
+          conan profile show | grep -q "compiler.version=13"
+
+      - name: conan install（MakeDeps）
+        run: conan install . --build=missing -of build
+
+      - name: 檢查 conandeps.mk 的內容
+        run: |
+          set -euo pipefail
+          echo "--- build/ 產生的檔案 ---"
+          ls build/
+          echo "--- conandeps.mk 的彙總變數 ---"
+          grep -E '^CONAN_(DEPS|INCLUDE_DIRS|LIB_DIRS|LIBS|SYSTEM_LIBS|DEFINES) ' build/conandeps.mk
+
+          # 文章說 Linux 上 fmt 會帶一個系統相依 m。這是下面那個「必須失敗」
+          # 測試的前提，先確認它真的存在。
+          grep -q '^CONAN_SYSTEM_LIBS ' build/conandeps.mk
+          grep -E '^CONAN_SYSTEM_LIBS_FMT ' build/conandeps.mk | grep -q 'm'
+          echo "✓ CONAN_SYSTEM_LIBS 存在，fmt 確實帶了 m"
+
+      - name: make 並執行（文章的正常路徑）
+        run: |
+          set -euo pipefail
+          make
+          ./build/hello | tee /tmp/actual.txt
+          diff -u ../expected-output.txt /tmp/actual.txt
+          echo "✓ 輸出與文章一致"
+
+      - name: 反例：拿掉 CONAN_SYSTEM_LIB_FLAG 必須失敗
+        run: |
+          set -uo pipefail
+          # 文章宣稱：少了 CONAN_SYSTEM_LIB_FLAG = -l，linker 會收到裸的 m 而失敗。
+          # 用命令列覆寫成空字串來重現，不動檔案。
+          rm -f build/hello
+          set +e
+          make CONAN_SYSTEM_LIB_FLAG= > /tmp/neg.log 2>&1
+          rc=$?
+          set -e
+          echo "--- make 的輸出 ---"
+          cat /tmp/neg.log
+
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::預期要失敗卻成功了 —— 文章關於 CONAN_SYSTEM_LIB_FLAG 的說法可能已不成立"
+            exit 1
+          fi
+          if ! grep -qE "(: m: No such file or directory|cannot find [-']?m)" /tmp/neg.log; then
+            echo "::error::失敗了，但錯誤訊息跟文章描述的不一樣，請重新確認文章寫法"
+            exit 1
+          fi
+          echo "✓ 如文章所述失敗在 m 上（exit $rc）"
+
+      - name: 摘要
+        if: always()
+        run: |
+          {
+            echo "## D05 Makefile 驗證"
+            echo
+            echo "| 項目 | 值 |"
+            echo "|---|---|"
+            echo "| Debian | $(cat /etc/debian_version) |"
+            echo "| GCC | $(g++-13 -dumpfullversion) |"
+            echo "| Conan | $(conan --version | sed 's/Conan version //') |"
+          } >> "$GITHUB_STEP_SUMMARY"
