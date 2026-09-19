@@ -45,16 +45,22 @@ jobs:
             ForEach-Object { "{0,-12} {1,-16} {2}" -f `
               $_.catalog.productLineVersion, $_.catalog.productDisplayVersion, $_.installationPath }
 
-          # 文章用 VS 2022 = 17.x，Conan 的 compiler.version 是 194
+          # 文章用的是 VS 2022（17.x），優先挑它
           $vs = & $vswhere -products * -version "[17.0,18.0)" -latest -property installationPath
           if ($vs) {
-            $msvcVer = '194'
             Write-Host "OK: 找到 VS 2022 -> $vs"
           } else {
             $vs = & $vswhere -all -prerelease -products * -latest -property installationPath
-            $msvcVer = '195'
-            Write-Host "::warning::runner 上沒有 VS 2022，改用 $vs（msvc 195）。這與文章宣稱的環境不同。"
+            Write-Host "::warning::runner 上沒有 VS 2022，改用 $vs。產品版本與文章不同。"
           }
+
+          # compiler.version 要看「實際的 MSVC toolset」，不是 VS 的產品版本 ——
+          # 這正是文章踩雷提醒第三點。用產品版本去推會得到 v145，跟實際裝的
+          # toolset 14.44 對不起來，MSBuild 會回 MSB8052。
+          $toolsVer = (Get-Content (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
+          if ($toolsVer -notmatch '^(\d+)\.(\d)') { throw "看不懂的 VCToolsVersion：$toolsVer" }
+          $msvcVer = '19' + $Matches[2]    # 14.44 -> 194、14.51 -> 195、14.3x -> 193
+          Write-Host "MSVC toolset $toolsVer -> Conan compiler.version=$msvcVer"
 
           $msbuild = Join-Path $vs "MSBuild\Current\Bin\MSBuild.exe"
           if (-not (Test-Path $msbuild)) { throw "找不到 MSBuild.exe：$msbuild" }
@@ -63,6 +69,7 @@ jobs:
           "MSBUILD=$msbuild"   | Add-Content $env:GITHUB_ENV
           "MSVC_VER=$msvcVer"  | Add-Content $env:GITHUB_ENV
           "VS_PATH=$vs"        | Add-Content $env:GITHUB_ENV
+          "VC_TOOLS=$toolsVer" | Add-Content $env:GITHUB_ENV
 
       - name: 安裝 Conan 2.32.0
         run: |
@@ -161,6 +168,7 @@ jobs:
             "| 項目 | 值 |"
             "|---|---|"
             "| Visual Studio | $env:VS_PATH |"
+            "| MSVC toolset | $env:VC_TOOLS |"
             "| Conan compiler.version | $env:MSVC_VER |"
             "| Conan | $((conan --version) -replace 'Conan version ','') |"
           ) | Add-Content $env:GITHUB_STEP_SUMMARY
