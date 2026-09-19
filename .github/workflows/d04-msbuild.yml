@@ -74,6 +74,12 @@ jobs:
           $msvcVer = '194'
           Write-Host "專案 PlatformToolset=v143 -> MSVC $toolsVer -> Conan compiler.version=$msvcVer"
 
+          # Conan 依 compiler.version=194 會去找 VS 17；這台只有 VS 18，
+          # 要用 tools.microsoft.msbuild:vs_version 告訴它 IDE 是哪一版，
+          # 否則 MSBuildToolchain 會直接報 "VS non-existing installation: Visual Studio 17"。
+          $vsMajor = (& $vswhere -all -prerelease -products * -path $vs -property installationVersion).Split('.')[0]
+          Write-Host "VS IDE 版本：$vsMajor"
+
           $msbuild = Join-Path $vs "MSBuild\Current\Bin\MSBuild.exe"
           if (-not (Test-Path $msbuild)) { throw "找不到 MSBuild.exe：$msbuild" }
           & $msbuild -version -nologo
@@ -82,6 +88,7 @@ jobs:
           "MSVC_VER=$msvcVer"  | Add-Content $env:GITHUB_ENV
           "VS_PATH=$vs"        | Add-Content $env:GITHUB_ENV
           "VC_TOOLS=$toolsVer" | Add-Content $env:GITHUB_ENV
+          "VS_MAJOR=$vsMajor"  | Add-Content $env:GITHUB_ENV
 
       - name: 安裝 Conan 2.32.0
         run: |
@@ -107,6 +114,9 @@ jobs:
           compiler.runtime=dynamic
           compiler.version=$env:MSVC_VER
           os=Windows
+
+          [conf]
+          tools.microsoft.msbuild:vs_version=$env:VS_MAJOR
           "@
           $dir = Join-Path $env:CONAN_HOME 'profiles'
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
