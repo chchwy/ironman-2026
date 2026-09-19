@@ -40,19 +40,21 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 
+          $all = & $vswhere -all -prerelease -products * -format json | ConvertFrom-Json
           Write-Host "--- runner 上所有的 Visual Studio ---"
-          & $vswhere -all -prerelease -products * -format json | ConvertFrom-Json |
-            ForEach-Object { "{0,-12} {1,-16} {2}" -f `
-              $_.catalog.productLineVersion, $_.catalog.productDisplayVersion, $_.installationPath }
+          $all | ForEach-Object { "{0,-8} {1,-16} {2}" -f `
+            $_.catalog.productLineVersion, $_.installationVersion, $_.installationPath }
 
           # 文章用的是 VS 2022（17.x），優先挑它
-          $vs = & $vswhere -products * -version "[17.0,18.0)" -latest -property installationPath
-          if ($vs) {
-            Write-Host "OK: 找到 VS 2022 -> $vs"
+          $inst = $all | Where-Object { $_.installationVersion -like '17.*' } |
+                  Sort-Object installationVersion -Descending | Select-Object -First 1
+          if ($inst) {
+            Write-Host "OK: 找到 VS 2022 -> $($inst.installationPath)"
           } else {
-            $vs = & $vswhere -all -prerelease -products * -latest -property installationPath
-            Write-Host "::warning::runner 上沒有 VS 2022，改用 $vs。產品版本與文章不同。"
+            $inst = $all | Sort-Object installationVersion -Descending | Select-Object -First 1
+            Write-Host "::warning::runner 上沒有 VS 2022，改用 $($inst.installationPath)。產品版本與文章不同。"
           }
+          $vs = $inst.installationPath
 
           # compiler.version 要對齊「專案實際用的 toolset」，不是 VS 的產品版本、
           # 也不是 VS 的預設 toolset —— 這正是文章踩雷提醒第三點。
@@ -77,7 +79,8 @@ jobs:
           # Conan 依 compiler.version=194 會去找 VS 17；這台只有 VS 18，
           # 要用 tools.microsoft.msbuild:vs_version 告訴它 IDE 是哪一版，
           # 否則 MSBuildToolchain 會直接報 "VS non-existing installation: Visual Studio 17"。
-          $vsMajor = (& $vswhere -all -prerelease -products * -path $vs -property installationVersion).Split('.')[0]
+          $vsMajor = $inst.installationVersion.Split('.')[0]
+          if ($vsMajor -notmatch '^\d+$') { throw "取不到 VS 版本號：$($inst.installationVersion)" }
           Write-Host "VS IDE 版本：$vsMajor"
 
           $msbuild = Join-Path $vs "MSBuild\Current\Bin\MSBuild.exe"
