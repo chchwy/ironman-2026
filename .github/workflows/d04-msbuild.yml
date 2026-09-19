@@ -54,13 +54,25 @@ jobs:
             Write-Host "::warning::runner 上沒有 VS 2022，改用 $vs。產品版本與文章不同。"
           }
 
-          # compiler.version 要看「實際的 MSVC toolset」，不是 VS 的產品版本 ——
-          # 這正是文章踩雷提醒第三點。用產品版本去推會得到 v145，跟實際裝的
-          # toolset 14.44 對不起來，MSBuild 會回 MSB8052。
-          $toolsVer = (Get-Content (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
-          if ($toolsVer -notmatch '^(\d+)\.(\d)') { throw "看不懂的 VCToolsVersion：$toolsVer" }
-          $msvcVer = '19' + $Matches[2]    # 14.44 -> 194、14.51 -> 195、14.3x -> 193
-          Write-Host "MSVC toolset $toolsVer -> Conan compiler.version=$msvcVer"
+          # compiler.version 要對齊「專案實際用的 toolset」，不是 VS 的產品版本、
+          # 也不是 VS 的預設 toolset —— 這正是文章踩雷提醒第三點。
+          #
+          # hello-conan-msvc.vcxproj 寫死 PlatformToolset=v143，v143 對應 MSVC 14.4x，
+          # 也就是 Conan 的 compiler.version=194（文章那份 profile 的值）。
+          # 若改用 VS 的預設 toolset（這台 runner 是 14.51）推成 195，Conan 會寫出
+          # PlatformToolset=v145，跟 v143 選到的 14.44 打架：
+          #   error MSB8052: MSVC Toolset Version '14.44.35207' is not compatible with 'v145'
+          $defaultTools = (Get-Content (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
+          $installed = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Directory | Select-Object -ExpandProperty Name
+          Write-Host "VS 預設 toolset：$defaultTools"
+          Write-Host "已安裝的 toolset：$($installed -join ', ')"
+
+          $toolsVer = $installed | Where-Object { $_ -like '14.4*' } | Sort-Object -Descending | Select-Object -First 1
+          if (-not $toolsVer) {
+            throw "這台 runner 沒有 v143 對應的 MSVC 14.4x toolset（專案的 PlatformToolset 是 v143），無法重現文章的環境"
+          }
+          $msvcVer = '194'
+          Write-Host "專案 PlatformToolset=v143 -> MSVC $toolsVer -> Conan compiler.version=$msvcVer"
 
           $msbuild = Join-Path $vs "MSBuild\Current\Bin\MSBuild.exe"
           if (-not (Test-Path $msbuild)) { throw "找不到 MSBuild.exe：$msbuild" }
