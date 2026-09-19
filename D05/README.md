@@ -1,6 +1,7 @@
 # D05 — Xcode & Makefile 搭配 Conan
 
 [![D05 Makefile](https://github.com/chchwy/ironman-2026/actions/workflows/d05-make.yml/badge.svg)](https://github.com/chchwy/ironman-2026/actions/workflows/d05-make.yml)
+[![D05 Xcode](https://github.com/chchwy/ironman-2026/actions/workflows/d05-xcode.yml/badge.svg)](https://github.com/chchwy/ironman-2026/actions/workflows/d05-xcode.yml)
 
 對應文章：`D05： Xcode & Makefile 搭配 Conan 套件管理器.md`
 
@@ -102,6 +103,10 @@ xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
 xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
   ARCHS=arm64 build
 ```
+
+這不是本機環境的問題。`d05-xcode.yml` 在乾淨的 macos-15 runner 上把文章那行指令
+（含 `-destination`）跑成一個「必須失敗」的測試，同樣停在
+`fatal error: 'fmt/core.h' file not found`，且 log 裡看得到 x86_64 那一輪照編。
 
 ### Release 的 Universal Binary 問題（文章的描述正確）
 
@@ -223,6 +228,7 @@ make: *** [Makefile:15: build/hello] Error 1
 | Xcode：Release（`ARCHS=arm64`）編譯 + 執行 | ✅ |
 | Xcode：Universal Binary 的錯誤完整重現 | ✅ |
 | Xcode：apple-clang 版本對照表 | ✅ |
+| Xcode：以上全部在 GitHub Actions（macos-15）重跑 | ✅ |
 | **Xcode：文章的 `xcodebuild` 指令** | ❌ **不成立，解法要改** |
 | Makefile：macOS 上編譯 + 執行 | ✅ |
 | Makefile：Debian 13 + GCC 13（CI） | ✅ |
