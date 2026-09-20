@@ -116,47 +116,54 @@ jobs:
       - name: Debug 編譯並執行
         run: |
           set -euo pipefail
-          xcodebuild -project hello.xcodeproj -scheme hello -configuration Debug \
+          xcodebuild -project hello-conan-xcode.xcodeproj -scheme hello-conan-xcode -configuration Debug \
             -derivedDataPath "$DD/debug" build
-          "$DD/debug/Build/Products/Debug/hello" | tee /tmp/actual-debug.txt
+          "$DD/debug/Build/Products/Debug/hello-conan-xcode" | tee /tmp/actual-debug.txt
           diff -u "$GITHUB_WORKSPACE/expected-output.txt" /tmp/actual-debug.txt
           echo "✓ Debug 輸出與文章一致"
 
       - name: Release 編譯並執行（ARCHS=arm64）
         run: |
           set -euo pipefail
-          xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
+          xcodebuild -project hello-conan-xcode.xcodeproj -scheme hello-conan-xcode -configuration Release \
             ARCHS=arm64 -derivedDataPath "$DD/release" build
-          lipo -archs "$DD/release/Build/Products/Release/hello"
-          "$DD/release/Build/Products/Release/hello" | tee /tmp/actual-release.txt
+          lipo -archs "$DD/release/Build/Products/Release/hello-conan-xcode"
+          "$DD/release/Build/Products/Release/hello-conan-xcode" | tee /tmp/actual-release.txt
           diff -u "$GITHUB_WORKSPACE/expected-output.txt" /tmp/actual-release.txt
           echo "✓ Release 輸出與文章一致"
 
-      - name: 反例：Release 不指定 ARCHS 必須失敗
+      - name: 反例：文章原本那行（沒有 -scheme）必須失敗
         run: |
           set -uo pipefail
-          # 文章原本寫 -destination 可以把架構限制成 arm64，實測不成立。
-          # 這一步把「不指定 ARCHS 會失敗」釘住：Release 預設是 Universal Binary，
-          # x86_64 那一輪吃不到 Conan 的設定。
+          # Release 組態是 ARCHS = arm64 x86_64、ONLY_ACTIVE_ARCH = NO，但 Conan 只裝了
+          # arm64 的 fmt，XcodeDeps 的設定也只掛在 [arch=arm64] 底下，所以編 x86_64 那一輪
+          # 會找不到標頭檔。文章原本那行是 target 模式（沒有 -scheme），兩個架構都會編。
+          #
+          # 上一步加了 -scheme 就編得過：給了 scheme，xcodebuild 只編本機的架構（arm64）。
+          # 這一步把「沒有 -scheme 就會失敗」釘住。
+          # target 模式不能配 -derivedDataPath，產物會落在專案底下的 build/。
           set +e
-          xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
-            -destination 'platform=macOS,arch=arm64' \
-            -derivedDataPath "$DD/trap" build > /tmp/trap.log 2>&1
+          xcodebuild -project hello-conan-xcode.xcodeproj -configuration Release \
+            -xcconfig conan/conan_config.xcconfig > /tmp/trap.log 2>&1
           rc=$?
           set -e
+          rm -rf build
           echo "--- 錯誤摘要 ---"
           grep -E "error:|BUILD (SUCCEEDED|FAILED)" /tmp/trap.log | head -10 || true
 
           if [ "$rc" -eq 0 ]; then
-            echo "::error::加了 -destination 之後竟然編過了 —— 文章關於 Universal Binary 的踩雷說明要重新確認"
+            echo "::error::預期要失敗卻編過了 —— 文章關於 Universal Binary 的踩雷說明要重新確認"
             exit 1
           fi
-          if ! grep -q "fmt/core.h' file not found" /tmp/trap.log; then
+          if ! grep -qE "fmt/(base|core)\.h' file not found" /tmp/trap.log; then
             echo "::error::失敗了，但不是文章描述的那個錯誤，請重新確認"
             exit 1
           fi
-          grep -q "normal x86_64 c++" /tmp/trap.log \
-            && echo "✓ 確認 -destination 沒有擋掉 x86_64，錯誤如文章所述"
+          if ! grep -q "normal x86_64 c++" /tmp/trap.log; then
+            echo "::error::失敗的不是 x86_64 那一輪，請重新確認"
+            exit 1
+          fi
+          echo "✓ x86_64 那一輪照編、且如文章所述失敗在找不到標頭檔（exit $rc）"
 
       - name: 摘要
         if: always()
