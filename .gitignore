@@ -1,3 +1,5 @@
+.DS_Store
+
 # Python / Conan 環境
 .venv/
 .conan2/
@@ -23,9 +25,17 @@ D04/hello-conan-msvc/
 vcpkg_installed/
 
 # D05：Conan 針對 Xcode 產生的整合檔（`conan install` 可重新產生）
-D05/hello-conan-xcode/conan/
+D05/**/conan/
 
-# Xcode 個人設定與產出
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/
+# Xcode 編譯產出
 DerivedData/
+*.build/
+*.app/
+*.dSYM/
+*.xcarchive/
+
+# Xcode 個人設定與本機狀態
+**/xcuserdata/
+**/*.xcuserstate
+**/*.xccheckout
+**/*.xcscmblueprint

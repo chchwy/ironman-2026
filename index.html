@@ -1,0 +1,142 @@
+---
+title: Image Gallery
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #19232e;
+      --muted: #697783;
+      --paper: #f5f2eb;
+      --line: #d8d2c7;
+      --accent: #d85b3f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Georgia, "Times New Roman", serif;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: clamp(3rem, 9vw, 8rem) 0 4rem;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 2rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.5rem, 7vw, 6rem);
+      font-weight: 400;
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+
+    header p {
+      max-width: 15rem;
+      margin: 0;
+      color: var(--muted);
+      font: 0.78rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+      gap: 1rem;
+      padding-top: 1rem;
+    }
+
+    figure {
+      margin: 0;
+      overflow: hidden;
+      background: #e8e2d8;
+      border: 1px solid var(--line);
+    }
+
+    figure img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      transition: transform 250ms ease;
+    }
+
+    figure:hover img {
+      transform: scale(1.025);
+    }
+
+    figcaption {
+      padding: 0.7rem 0.85rem;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font: 0.72rem/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      grid-column: 1 / -1;
+      padding: 3rem 1rem;
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      text-align: center;
+    }
+
+    @media (max-width: 600px) {
+      header {
+        display: block;
+      }
+
+      header p {
+        margin-top: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>{{ page.title }}</h1>
+      <p>Images from the img folder</p>
+    </header>
+
+    <section class="gallery" aria-label="Image gallery">
+      {% assign image_files = site.static_files | where_exp: "file", "file.path contains '/img/'" %}
+      {% assign image_count = 0 %}
+      {% for image in image_files %}
+        {% assign extension = image.extname | downcase %}
+        {% if extension == '.png' or extension == '.jpg' or extension == '.jpeg' or extension == '.gif' or extension == '.webp' or extension == '.avif' %}
+          {% assign image_count = image_count | plus: 1 %}
+          <figure>
+            <img src="{{ image.path | relative_url }}" alt="{{ image.basename | escape }}" loading="lazy">
+            <figcaption>{{ image.basename | escape }}</figcaption>
+          </figure>
+        {% endif %}
+      {% endfor %}
+      {% if image_count == 0 %}
+        <p class="empty">No images yet.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>
