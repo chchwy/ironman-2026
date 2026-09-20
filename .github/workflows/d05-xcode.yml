@@ -109,7 +109,7 @@ jobs:
           while read -r f; do
             f="$(echo "$f" | xargs)"
             [ -z "$f" ] && continue
-            if [ ! -f "conan/$f" ]; then echo "::error::文章列了 $f，實際沒有產生"; missing=1; fi
+            if [ ! -f "conan/$f" ]; then echo "::error::文章列了 ${f}，實際沒有產生"; missing=1; fi
           done <<< "$expected"
           [ "$missing" -eq 0 ] && echo "✓ 文章列的 16 個 xcconfig 全部存在"
 
@@ -163,7 +163,7 @@ jobs:
             echo "::error::失敗的不是 x86_64 那一輪，請重新確認"
             exit 1
           fi
-          echo "✓ x86_64 那一輪照編、且如文章所述失敗在找不到標頭檔（exit $rc）"
+          echo "✓ x86_64 那一輪照編、且如文章所述失敗在找不到標頭檔（exit ${rc}）"
 
       - name: 摘要
         if: always()
@@ -174,7 +174,7 @@ jobs:
             echo "| 項目 | 值 |"
             echo "|---|---|"
             echo "| macOS | $(sw_vers -productVersion) |"
-            echo "| Xcode | $(xcodebuild -version | head -1 | sed 's/Xcode //') |"
+            echo "| Xcode | $(xcodebuild -version | sed -n '1s/^Xcode //p') |"
             echo "| apple-clang | $(clang --version | head -1 | sed 's/.*version //;s/ .*//') |"
             echo "| Conan | $(conan --version | sed 's/Conan version //') |"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -119,7 +119,7 @@ jobs:
             echo "::error::失敗了，但錯誤訊息跟文章描述的不一樣，請重新確認文章寫法"
             exit 1
           fi
-          echo "✓ 如文章所述失敗在 m 上（exit $rc）"
+          echo "✓ 如文章所述失敗在 m 上（exit ${rc}）"
 
       - name: 摘要
         if: always()
