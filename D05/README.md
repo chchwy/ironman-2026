@@ -1,23 +1,23 @@
-# D05 — Xcode & Makefile 搭配 Conan
+# D05 / D06 — Xcode 與 Makefile 搭配 Conan
 
-[![D05 Makefile](https://github.com/chchwy/ironman-2026/actions/workflows/d05-make.yml/badge.svg)](https://github.com/chchwy/ironman-2026/actions/workflows/d05-make.yml)
 [![D05 Xcode](https://github.com/chchwy/ironman-2026/actions/workflows/d05-xcode.yml/badge.svg)](https://github.com/chchwy/ironman-2026/actions/workflows/d05-xcode.yml)
+[![D06 Makefile](https://github.com/chchwy/ironman-2026/actions/workflows/d06-make.yml/badge.svg)](https://github.com/chchwy/ironman-2026/actions/workflows/d06-make.yml)
 
-對應文章：`D05： Xcode & Makefile 搭配 Conan 套件管理器.md`
+對應文章：`D05：Xcode 搭配 Conan 套件管理器.md`、`D06 Conan 接上 Makefile：MakeDeps 上場.md`
 
 兩個專案，`[requires]` 完全相同，只換 `[generators]`。
-`main.cpp` 跟 D03 逐字一致。
+`main.cpp` 跟 D03 逐字一致（Xcode 那份的 include 換成 `fmt/base.h`）。
 
 ```
-D05/
-├── hello-conan-xcode/        # XcodeDeps + XcodeToolchain
-│   ├── conanfile.txt
-│   ├── hello.xcodeproj/
-│   └── hello/main.cpp
-└── hello-conan-make/         # MakeDeps
-    ├── conanfile.txt
-    ├── Makefile
-    └── src/main.cpp
+D05/hello-conan-xcode/        # XcodeDeps + XcodeToolchain
+├── conanfile.txt
+├── hello-conan-xcode.xcodeproj/
+└── hello-conan-xcode/main.cpp
+
+D06/hello-conan-make/         # MakeDeps
+├── conanfile.txt
+├── Makefile
+└── src/main.cpp
 ```
 
 ## 驗證環境
@@ -53,7 +53,7 @@ os=Macos
 用 `-pr:a d05-macos` 指定。另外本機設了公司內部 remote，離開 VPN 時 `conan install`
 會卡在連不上而中止，加 `-r conancenter` 限定來源即可。
 
-## Xcode
+## Xcode（D05）
 
 Xcode 沒有 `vs_layout` 那樣的預設 layout，所以 `conanfile.txt` 不寫 `[layout]`，
 改用 `-of conan` 指定輸出資料夾。Debug / Release 各跑一次：
@@ -75,7 +75,8 @@ Xcode 按 ⌘R 就能編，不用再手動去 Info > Configurations 設定。
 留給 `conantoolchain.xcconfig` 決定——專案層級的值會蓋過 base xcconfig。
 實測編譯參數確實帶到 `-std=gnu++17 -stdlib=libc++`，來源就是 profile 的 `cppstd=gnu17`。
 
-`hello.xcscheme` 是 shared scheme，已納入版控，clone 下來就能直接用 `-scheme hello`。
+`hello-conan-xcode.xcscheme` 是 shared scheme，已納入版控，clone 下來就能直接用
+`-scheme hello-conan-xcode`。
 
 ### 命令列編譯：文章的指令是錯的
 
@@ -83,30 +84,32 @@ Xcode 按 ⌘R 就能編，不用再手動去 Info > Configurations 設定。
 
 ```bash
 # ❌ 這個不會過
-xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
+xcodebuild -project hello-conan-xcode.xcodeproj -configuration Release \
   -destination 'platform=macOS,arch=arm64' \
   -xcconfig conan/conan_config.xcconfig
 ```
 
-`-destination` 對 macOS command line tool 專案**不會限制編譯架構**。實測四種寫法：
+沒給 `-scheme` 的 target 模式下，`-destination` 不會限制編譯架構，Release 照樣把
+arm64 和 x86_64 兩份都編。實測（Xcode 16.4、Apple Silicon）：
 
 | 指令 | 實際編的架構 | 結果 |
 |---|---|---|
-| 文章逐字（`-destination` + `-xcconfig`） | arm64 + x86_64 | ❌ BUILD FAILED |
-| 只加 `-destination` | arm64 + x86_64 | ❌ BUILD FAILED |
-| `ARCHS=arm64` | arm64 | ✅ BUILD SUCCEEDED |
-| `ONLY_ACTIVE_ARCH=YES` | arm64 | ✅ BUILD SUCCEEDED |
+| target 模式（沒有 `-scheme`） | arm64 + x86_64 | ❌ BUILD FAILED |
+| target 模式 + `-destination` | arm64 + x86_64 | ❌ BUILD FAILED |
+| target 模式 + `ONLY_ACTIVE_ARCH=YES` | arm64 + x86_64 | ❌ BUILD FAILED |
+| target 模式 + `ARCHS=arm64` | arm64 | ✅ BUILD SUCCEEDED |
+| 加 `-scheme hello-conan-xcode` | arm64 | ✅ BUILD SUCCEEDED |
 
-能過的版本：
+能過的版本（給了 scheme，xcodebuild 只編本機的架構）：
 
 ```bash
-xcodebuild -project hello.xcodeproj -scheme hello -configuration Release \
-  ARCHS=arm64 build
+xcodebuild -project hello-conan-xcode.xcodeproj -scheme hello-conan-xcode \
+  -configuration Release ARCHS=arm64 build
 ```
 
 這不是本機環境的問題。`d05-xcode.yml` 在乾淨的 macos-15 runner 上把文章那行指令
-（含 `-destination`）跑成一個「必須失敗」的測試，同樣停在
-`fatal error: 'fmt/core.h' file not found`，且 log 裡看得到 x86_64 那一輪照編。
+跑成一個「必須失敗」的測試，同樣停在
+`fatal error: 'fmt/base.h' file not found`，且 log 裡看得到 x86_64 那一輪照編。
 
 ### Release 的 Universal Binary 問題（文章的描述正確）
 
@@ -129,7 +132,7 @@ hello/main.cpp:1:10: fatal error: 'fmt/core.h' file not found
 | Debug | `arm64` | `YES` |
 | Release | `arm64 x86_64` | `NO` |
 
-Debug 只編 arm64，所以 Xcode 裡按 ⌘R 不會中；命令列走 Release 才會中。
+Debug 只編 arm64，所以在 Xcode 裡按 ⌘R 不會踩到這個錯誤；命令列編 Release 才會。
 文章這段的因果解釋正確，只有上面那個解法要修。
 
 ### apple-clang 版本對照（文章表格正確）
@@ -152,10 +155,10 @@ Debug 只編 arm64，所以 Xcode 裡按 ⌘R 不會中；命令列走 Release �
 
 現場編譯需要 `cmake` 在 PATH 上，這點文章有寫，成立。
 
-## Makefile
+## Makefile（D06）
 
 ```bash
-cd hello-conan-make
+cd D06/hello-conan-make
 conan install . --build=missing -of build -pr:a d05-macos
 make
 ./build/hello
@@ -183,7 +186,7 @@ c++ -I.../fmt/include -I.../nlohmann_json/include -std=c++17 \
 
 ### Linux（GitHub Actions）
 
-`.github/workflows/d05-make.yml` 跑在 `debian:13` 容器裡，裝 `g++-13` + Conan 2.32.0，
+`.github/workflows/d06-make.yml` 跑在 `debian:13` 容器裡，裝 `g++-13` + Conan 2.32.0，
 對齊文章宣稱的環境。Debian 13 的預設 GCC 是 14，所以 workflow 明確設
 `CC=gcc-13` / `CXX=g++-13`——Conan 的 `profile detect` 會優先採用這兩個環境變數。
 
