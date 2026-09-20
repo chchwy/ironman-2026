@@ -1,19 +1,19 @@
-name: D05 Makefile (Debian 13 + GCC 13)
+name: D06 Makefile (Debian 13 + GCC 13)
 
-# 驗證 D05 文章「Conan + Makefile」那一段。
+# 驗證 D06 文章「Conan + Makefile」那一段。
 # 環境刻意對齊文章宣稱的 Debian 13 + GCC 13 + Conan 2.32.0。
 
 on:
   push:
     paths:
-      - 'D05/hello-conan-make/**'
+      - 'D06/hello-conan-make/**'
       - 'expected-output.txt'
-      - '.github/workflows/d05-make.yml'
+      - '.github/workflows/d06-make.yml'
   pull_request:
     paths:
-      - 'D05/hello-conan-make/**'
+      - 'D06/hello-conan-make/**'
       - 'expected-output.txt'
-      - '.github/workflows/d05-make.yml'
+      - '.github/workflows/d06-make.yml'
   workflow_dispatch:
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: D05/hello-conan-make
+        working-directory: D06/hello-conan-make
 
     steps:
       - name: 安裝工具鏈
@@ -125,7 +125,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## D05 Makefile 驗證"
+            echo "## D06 Makefile 驗證"
             echo
             echo "| 項目 | 值 |"
             echo "|---|---|"
