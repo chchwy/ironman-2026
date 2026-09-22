@@ -39,3 +39,5 @@ DerivedData/
 **/*.xcuserstate
 **/*.xccheckout
 **/*.xcscmblueprint
+
+/articles
