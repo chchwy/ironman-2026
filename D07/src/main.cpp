@@ -1,9 +1,9 @@
-#include <fmt/core.h>
-#include "audio.h"
+#include <fmt/base.h>
+#include "compute.h"
 
 int main()
 {
-    fmt::print("Hello, audio!\n");
-    print_audio_info();
+    fmt::print("Hello, compute!\n");
+    print_compute_info();
     return 0;
 }
