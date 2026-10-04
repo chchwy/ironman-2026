@@ -1,5 +1,6 @@
 {
   "name": "super-app",
+  "version-string": "1.0.0",
   "dependencies": [
     "super-lib"
   ]
