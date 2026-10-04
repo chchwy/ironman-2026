@@ -1,0 +1,6 @@
+{
+  "name": "super-app",
+  "dependencies": [
+    "super-lib"
+  ]
+}
