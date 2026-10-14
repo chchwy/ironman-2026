@@ -1,0 +1,6 @@
+[requires]
+super-lib/0.1.0
+
+[generators]
+CMakeDeps
+CMakeToolchain
