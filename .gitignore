@@ -41,3 +41,13 @@ DerivedData/
 **/*.xcscmblueprint
 
 /articles
+# D11：多組 build 目錄（build-static/、build-static-md/…）
+build-*/
+
+# Conan 產生的環境腳本（`conan install` 可重新產生）
+conanbuild*.bat
+conanrun*.bat
+deactivate_conan*.bat
+
+# 執行紀錄
+*.log
